@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api\V1;
 
 use App\Http\Controllers\Controller;
+use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
@@ -35,29 +36,9 @@ class CustomerController extends Controller
         ], $status);
     }
 
-    private function tokenFrom(Request $request): ?string
+    private function requireUser(Request $request): User
     {
-        $header = $request->header('Authorization', '');
-        if (!Str::startsWith($header, 'Bearer ')) {
-            return null;
-        }
-
-        return trim(Str::after($header, 'Bearer '));
-    }
-
-    private function authUser(Request $request)
-    {
-        $token = $this->tokenFrom($request);
-        if (!$token) {
-            return null;
-        }
-
-        return DB::table('users')->where('remember_token', $token)->first();
-    }
-
-    private function requireUser(Request $request)
-    {
-        $user = $this->authUser($request);
+        $user = $request->user();
 
         if (!$user) {
             abort(response()->json([
@@ -89,12 +70,7 @@ class CustomerController extends Controller
     {
         return $this->ok('Guest mode enabled', [
             'mode' => 'guest',
-            'permissions' => [
-                'home',
-                'search',
-                'provider_view',
-                'service_view',
-            ],
+            'permissions' => ['home', 'search', 'provider_view', 'service_view'],
         ]);
     }
 
@@ -111,32 +87,23 @@ class CustomerController extends Controller
             return $this->fail('Validation failed', $validator->errors()->toArray());
         }
 
-        $otp = (string) random_int(100000, 999999);
-
-        DB::table('password_reset_tokens')->updateOrInsert(
-            ['email' => $request->email],
-            ['token' => $otp, 'created_at' => now()]
-        );
-
-        $userId = DB::table('users')->insertGetId([
+        $user = User::create([
             'full_name' => $request->full_name,
             'email' => $request->email,
             'phone' => $request->phone,
             'password' => Hash::make($request->password),
-            'remember_token' => Str::random(80),
             'loyalty_points' => 0,
             'notifications_enabled' => true,
             'language' => 'ar',
             'is_active' => true,
-            'created_at' => now(),
-            'updated_at' => now(),
+            'last_login_at' => now(),
         ]);
 
-        return $this->ok('Account created. OTP generated.', [
-            'user_id' => $userId,
-            'email' => $request->email,
-            'otp' => $otp,
-            'token' => DB::table('users')->where('id', $userId)->value('remember_token'),
+        $token = $user->createToken('customer-token')->plainTextToken;
+
+        return $this->ok('Account created successfully', [
+            'user' => $user,
+            'token' => $token,
         ], 201);
     }
 
@@ -151,23 +118,19 @@ class CustomerController extends Controller
             return $this->fail('Validation failed', $validator->errors()->toArray());
         }
 
-        $user = DB::table('users')->where('email', $request->email)->first();
+        $user = User::where('email', $request->email)->first();
 
         if (!$user || !Hash::check($request->password, $user->password)) {
             return $this->fail('Invalid credentials', [], 401);
         }
 
-        $token = Str::random(80);
+        $user->update(['last_login_at' => now()]);
 
-        DB::table('users')->where('id', $user->id)->update([
-            'remember_token' => $token,
-            'last_login_at' => now(),
-            'updated_at' => now(),
-        ]);
+        $token = $user->createToken('customer-token')->plainTextToken;
 
         return $this->ok('Logged in successfully', [
+            'user' => $user,
             'token' => $token,
-            'user' => DB::table('users')->where('id', $user->id)->first(),
         ]);
     }
 
@@ -183,12 +146,22 @@ class CustomerController extends Controller
 
         $otp = (string) random_int(100000, 999999);
 
-        DB::table('password_reset_tokens')->updateOrInsert(
-            ['email' => $request->email],
-            ['token' => $otp, 'created_at' => now()]
-        );
+        $tokenQuery = DB::table('password_reset_tokens')->where('email', $request->email);
 
-        return $this->ok('OTP generated', [
+        if ($tokenQuery->exists()) {
+            $tokenQuery->update([
+                'token' => $otp,
+                'created_at' => now(),
+            ]);
+        } else {
+            DB::table('password_reset_tokens')->insert([
+                'email' => $request->email,
+                'token' => $otp,
+                'created_at' => now(),
+            ]);
+        }
+
+        return $this->ok('OTP generated successfully', [
             'email' => $request->email,
             'otp' => $otp,
         ]);
@@ -236,26 +209,27 @@ class CustomerController extends Controller
             return $this->fail('Invalid OTP', [], 422);
         }
 
-        DB::table('users')->where('email', $request->email)->update([
+        User::where('email', $request->email)->update([
             'password' => Hash::make($request->password),
-            'remember_token' => Str::random(80),
             'updated_at' => now(),
         ]);
 
-        DB::table('password_reset_tokens')->where('email', $request->email)->delete();
+        $deleteTokenQuery = DB::table('password_reset_tokens')->where('email', $request->email);
+        $deleteTokenQuery->delete();
 
         return $this->ok('Password reset successfully');
     }
 
     public function logout(Request $request)
     {
-        $user = $this->authUser($request);
+        $user = $request->user();
 
         if ($user) {
-            DB::table('users')->where('id', $user->id)->update([
-                'remember_token' => null,
-                'updated_at' => now(),
-            ]);
+            /** @var \Laravel\Sanctum\PersonalAccessToken|null $token */
+            $token = $user->currentAccessToken();
+            if ($token) {
+                $token->delete();
+            }
         }
 
         return $this->ok('Logged out successfully');
@@ -294,26 +268,17 @@ class CustomerController extends Controller
 
     public function topRatedSalons()
     {
-        return $this->ok('Top salons loaded', DB::table('salons')
-            ->orderByDesc('rating_count')
-            ->limit(10)
-            ->get());
+        return $this->ok('Top salons loaded', DB::table('salons')->orderByDesc('rating_count')->limit(10)->get());
     }
 
     public function topRatedBeautyCenters()
     {
-        return $this->ok('Top beauty centers loaded', DB::table('beauty_centers')
-            ->orderByDesc('rating_count')
-            ->limit(10)
-            ->get());
+        return $this->ok('Top beauty centers loaded', DB::table('beauty_centers')->orderByDesc('rating_count')->limit(10)->get());
     }
 
     public function topRatedExperts()
     {
-        return $this->ok('Top experts loaded', DB::table('experts')
-            ->orderByDesc('rating_count')
-            ->limit(10)
-            ->get());
+        return $this->ok('Top experts loaded', DB::table('experts')->orderByDesc('rating_count')->limit(10)->get());
     }
 
     public function searchProviders(Request $request)
@@ -321,18 +286,9 @@ class CustomerController extends Controller
         $q = trim((string) $request->query('q', ''));
 
         return $this->ok('Search results', [
-            'salons' => DB::table('salons')
-                ->when($q, fn ($query) => $query->where('name', 'like', "%{$q}%"))
-                ->limit(20)
-                ->get(),
-            'beauty_centers' => DB::table('beauty_centers')
-                ->when($q, fn ($query) => $query->where('name', 'like', "%{$q}%"))
-                ->limit(20)
-                ->get(),
-            'experts' => DB::table('experts')
-                ->when($q, fn ($query) => $query->where('full_name', 'like', "%{$q}%"))
-                ->limit(20)
-                ->get(),
+            'salons' => DB::table('salons')->when($q, fn ($query) => $query->where('name', 'like', "%{$q}%"))->limit(20)->get(),
+            'beauty_centers' => DB::table('beauty_centers')->when($q, fn ($query) => $query->where('name', 'like', "%{$q}%"))->limit(20)->get(),
+            'experts' => DB::table('experts')->when($q, fn ($query) => $query->where('full_name', 'like', "%{$q}%"))->limit(20)->get(),
         ]);
     }
 
@@ -530,21 +486,85 @@ class CustomerController extends Controller
             ->get());
     }
 
+    public function postDetails(int $id)
+    {
+        $post = DB::table('posts')->where('id', $id)->first();
+
+        if (!$post) {
+            return $this->fail('Post not found', [], 404);
+        }
+
+        return $this->ok('Post details loaded', $post);
+    }
+
+    public function postComments(int $id)
+    {
+        return $this->ok('Comments loaded', DB::table('post_comments')
+            ->where('post_id', $id)
+            ->orderBy('created_at')
+            ->get());
+    }
+
+    public function addPostComment(Request $request, int $id)
+    {
+        $user = $this->requireUser($request);
+
+        $validator = Validator::make($request->all(), [
+            'comment' => ['required', 'string', 'max:1000'],
+        ]);
+
+        if ($validator->fails()) {
+            return $this->fail('Validation failed', $validator->errors()->toArray());
+        }
+
+        $commentId = DB::table('post_comments')->insertGetId([
+            'post_id' => $id,
+            'user_id' => $user->id,
+            'comment' => $request->comment,
+            'parent_comment_id' => null,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        return $this->ok('Comment added successfully', ['comment_id' => $commentId], 201);
+    }
+
+    public function replyToComment(Request $request, int $id, int $commentId)
+    {
+        $user = $this->requireUser($request);
+
+        $validator = Validator::make($request->all(), [
+            'comment' => ['required', 'string', 'max:1000'],
+        ]);
+
+        if ($validator->fails()) {
+            return $this->fail('Validation failed', $validator->errors()->toArray());
+        }
+
+        $replyId = DB::table('post_comments')->insertGetId([
+            'post_id' => $id,
+            'user_id' => $user->id,
+            'parent_comment_id' => $commentId,
+            'comment' => $request->comment,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        return $this->ok('Reply added successfully', ['reply_id' => $replyId], 201);
+    }
+
     public function toggleLikePost(Request $request, int $id)
     {
         $user = $this->requireUser($request);
 
-        $exists = DB::table('post_likes')
+        $likeQuery = DB::table('post_likes')
             ->where('post_id', $id)
-            ->where('user_id', $user->id)
-            ->first();
+            ->where('user_id', $user->id);
+
+        $exists = $likeQuery->exists();
 
         if ($exists) {
-            DB::table('post_likes')
-                ->where('post_id', $id)
-                ->where('user_id', $user->id)
-                ->delete();
-
+            $likeQuery->delete();
             DB::table('posts')->where('id', $id)->decrement('likes_count');
 
             return $this->ok('Post unliked');
@@ -554,6 +574,7 @@ class CustomerController extends Controller
             'post_id' => $id,
             'user_id' => $user->id,
             'created_at' => now(),
+            'updated_at' => now(),
         ]);
 
         DB::table('posts')->where('id', $id)->increment('likes_count');
@@ -565,17 +586,12 @@ class CustomerController extends Controller
     {
         $user = $this->requireUser($request);
 
-        $exists = DB::table('post_favorites')
+        $favoriteQuery = DB::table('post_favorites')
             ->where('post_id', $id)
-            ->where('user_id', $user->id)
-            ->first();
+            ->where('user_id', $user->id);
 
-        if ($exists) {
-            DB::table('post_favorites')
-                ->where('post_id', $id)
-                ->where('user_id', $user->id)
-                ->delete();
-
+        if ($favoriteQuery->exists()) {
+            $favoriteQuery->delete();
             return $this->ok('Post removed from favorites');
         }
 
@@ -583,6 +599,7 @@ class CustomerController extends Controller
             'post_id' => $id,
             'user_id' => $user->id,
             'created_at' => now(),
+            'updated_at' => now(),
         ]);
 
         return $this->ok('Post added to favorites');
@@ -596,19 +613,13 @@ class CustomerController extends Controller
             return $this->fail('Provider not found', [], 404);
         }
 
-        $exists = DB::table('follows')
+        $followQuery = DB::table('follows')
             ->where('follower_id', $user->id)
             ->where('followed_type', $type)
-            ->where('followed_id', $id)
-            ->first();
+            ->where('followed_id', $id);
 
-        if ($exists) {
-            DB::table('follows')
-                ->where('follower_id', $user->id)
-                ->where('followed_type', $type)
-                ->where('followed_id', $id)
-                ->delete();
-
+        if ($followQuery->exists()) {
+            $followQuery->delete();
             return $this->ok('Unfollowed successfully');
         }
 
@@ -617,6 +628,7 @@ class CustomerController extends Controller
             'followed_type' => $type,
             'followed_id' => $id,
             'created_at' => now(),
+            'updated_at' => now(),
         ]);
 
         return $this->ok('Followed successfully');
@@ -630,19 +642,13 @@ class CustomerController extends Controller
             return $this->fail('Provider not found', [], 404);
         }
 
-        $exists = DB::table('blocked_users')
+        $blockQuery = DB::table('blocked_users')
             ->where('blocker_id', $user->id)
             ->where('blocked_type', $type)
-            ->where('blocked_id', $id)
-            ->first();
+            ->where('blocked_id', $id);
 
-        if ($exists) {
-            DB::table('blocked_users')
-                ->where('blocker_id', $user->id)
-                ->where('blocked_type', $type)
-                ->where('blocked_id', $id)
-                ->delete();
-
+        if ($blockQuery->exists()) {
+            $blockQuery->delete();
             return $this->ok('Provider unblocked');
         }
 
@@ -651,6 +657,7 @@ class CustomerController extends Controller
             'blocked_type' => $type,
             'blocked_id' => $id,
             'created_at' => now(),
+            'updated_at' => now(),
         ]);
 
         return $this->ok('Provider blocked');
@@ -660,19 +667,13 @@ class CustomerController extends Controller
     {
         $user = $this->requireUser($request);
 
-        $exists = DB::table('blocked_users')
+        $blockQuery = DB::table('blocked_users')
             ->where('blocker_id', $user->id)
             ->where('blocked_type', 'user')
-            ->where('blocked_id', $id)
-            ->first();
+            ->where('blocked_id', $id);
 
-        if ($exists) {
-            DB::table('blocked_users')
-                ->where('blocker_id', $user->id)
-                ->where('blocked_type', 'user')
-                ->where('blocked_id', $id)
-                ->delete();
-
+        if ($blockQuery->exists()) {
+            $blockQuery->delete();
             return $this->ok('User unblocked');
         }
 
@@ -681,9 +682,314 @@ class CustomerController extends Controller
             'blocked_type' => 'user',
             'blocked_id' => $id,
             'created_at' => now(),
+            'updated_at' => now(),
         ]);
 
         return $this->ok('User blocked');
+    }
+
+    public function storeBooking(Request $request)
+    {
+        $user = $this->requireUser($request);
+
+        $validator = Validator::make($request->all(), [
+            'provider_type' => ['required', 'in:expert,salon,beauty_center'],
+            'provider_id' => ['required', 'integer'],
+            'employee_id' => ['nullable', 'integer'],
+            'booking_date' => ['required', 'date'],
+            'start_time' => ['required'],
+            'end_time' => ['required'],
+            'services' => ['required', 'array', 'min:1'],
+            'services.*.service_id' => ['required', 'integer'],
+            'services.*.price_snapshot' => ['required', 'numeric'],
+            'services.*.duration_minutes' => ['required', 'integer'],
+            'total_price' => ['required', 'numeric'],
+            'notes' => ['nullable', 'string'],
+            'answers' => ['nullable', 'array'],
+        ]);
+
+        if ($validator->fails()) {
+            return $this->fail('Validation failed', $validator->errors()->toArray());
+        }
+
+        $bookingId = DB::transaction(function () use ($request, $user) {
+            $bookingId = DB::table('bookings')->insertGetId([
+                'user_id' => $user->id,
+                'provider_type' => $request->provider_type,
+                'provider_id' => $request->provider_id,
+                'employee_id' => $request->employee_id,
+                'booking_date' => $request->booking_date,
+                'start_time' => $request->start_time,
+                'end_time' => $request->end_time,
+                'total_price' => $request->total_price,
+                'deposit_amount' => round($request->total_price * 0.26, 2),
+                'remaining_amount' => round($request->total_price * 0.74, 2),
+                'status' => 'pending',
+                'notes' => $request->notes,
+                'created_at' => now(),
+                'updated_at' => now(),
+            ]);
+
+            foreach ($request->services as $service) {
+                DB::table('booking_services')->insert([
+                    'booking_id' => $bookingId,
+                    'service_id' => $service['service_id'],
+                    'employee_id' => $service['employee_id'] ?? $request->employee_id,
+                    'price_snapshot' => $service['price_snapshot'],
+                    'duration_minutes' => $service['duration_minutes'],
+                    'created_at' => now(),
+                    'updated_at' => now(),
+                ]);
+            }
+
+            if (is_array($request->answers)) {
+                foreach ($request->answers as $answer) {
+                    DB::table('booking_question_answers')->insert([
+                        'booking_id' => $bookingId,
+                        'question_id' => $answer['question_id'],
+                        'answer_text' => $answer['answer_text'],
+                        'created_at' => now(),
+                        'updated_at' => now(),
+                    ]);
+                }
+            }
+
+            return $bookingId;
+        });
+
+        return $this->ok('Booking created successfully', ['booking_id' => $bookingId], 201);
+    }
+
+    public function showBooking(Request $request, int $id)
+    {
+        $user = $this->requireUser($request);
+
+        $booking = DB::table('bookings')
+            ->where('id', $id)
+            ->where('user_id', $user->id)
+            ->first();
+
+        if (!$booking) {
+            return $this->fail('Booking not found', [], 404);
+        }
+
+        return $this->ok('Booking details loaded', [
+            'booking' => $booking,
+            'services' => DB::table('booking_services')->where('booking_id', $id)->get(),
+            'answers' => DB::table('booking_question_answers')->where('booking_id', $id)->get(),
+            'review' => DB::table('reviews')->where('booking_id', $id)->first(),
+        ]);
+    }
+
+    public function bookingStatus(Request $request, int $id)
+    {
+        $user = $this->requireUser($request);
+
+        $booking = DB::table('bookings')
+            ->select('id', 'status', 'booking_date', 'start_time', 'end_time')
+            ->where('id', $id)
+            ->where('user_id', $user->id)
+            ->first();
+
+        if (!$booking) {
+            return $this->fail('Booking not found', [], 404);
+        }
+
+        return $this->ok('Booking status loaded', $booking);
+    }
+
+    public function cancelBooking(Request $request, int $id)
+    {
+        $user = $this->requireUser($request);
+
+        $booking = DB::table('bookings')
+            ->where('id', $id)
+            ->where('user_id', $user->id)
+            ->first();
+
+        if (!$booking) {
+            return $this->fail('Booking not found', [], 404);
+        }
+
+        DB::table('bookings')->where('id', $id)->update([
+            'status' => 'cancelled',
+            'cancelled_by' => 'user',
+            'cancellation_reason' => $request->input('reason'),
+            'updated_at' => now(),
+        ]);
+
+        return $this->ok('Booking cancelled successfully');
+    }
+
+    public function rescheduleBooking(Request $request, int $id)
+    {
+        $user = $this->requireUser($request);
+
+        $validator = Validator::make($request->all(), [
+            'booking_date' => ['required', 'date'],
+            'start_time' => ['required'],
+            'end_time' => ['required'],
+        ]);
+
+        if ($validator->fails()) {
+            return $this->fail('Validation failed', $validator->errors()->toArray());
+        }
+
+        $updated = DB::table('bookings')
+            ->where('id', $id)
+            ->where('user_id', $user->id)
+            ->update([
+                'booking_date' => $request->booking_date,
+                'start_time' => $request->start_time,
+                'end_time' => $request->end_time,
+                'status' => 'pending',
+                'updated_at' => now(),
+            ]);
+
+        if (!$updated) {
+            return $this->fail('Booking not found', [], 404);
+        }
+
+        return $this->ok('Booking rescheduled successfully');
+    }
+
+    public function rateBooking(Request $request, int $id)
+    {
+        $user = $this->requireUser($request);
+
+        $validator = Validator::make($request->all(), [
+            'rating' => ['required', 'integer', 'min:1', 'max:5'],
+            'comment' => ['nullable', 'string', 'max:1000'],
+        ]);
+
+        if ($validator->fails()) {
+            return $this->fail('Validation failed', $validator->errors()->toArray());
+        }
+
+        $reviewQuery = DB::table('reviews')
+            ->where('booking_id', $id)
+            ->where('user_id', $user->id);
+
+        if ($reviewQuery->exists()) {
+            $reviewQuery->update([
+                'rating' => $request->rating,
+                'comment' => $request->comment,
+                'updated_at' => now(),
+            ]);
+        } else {
+            DB::table('reviews')->insert([
+                'booking_id' => $id,
+                'user_id' => $user->id,
+                'rating' => $request->rating,
+                'comment' => $request->comment,
+                'created_at' => now(),
+                'updated_at' => now(),
+            ]);
+        }
+
+        return $this->ok('Booking rated successfully');
+    }
+
+    public function reportBooking(Request $request, int $id)
+    {
+        $user = $this->requireUser($request);
+
+        $validator = Validator::make($request->all(), [
+            'reason' => ['required', 'string', 'max:1000'],
+        ]);
+
+        if ($validator->fails()) {
+            return $this->fail('Validation failed', $validator->errors()->toArray());
+        }
+
+        $reportId = DB::table('booking_reports')->insertGetId([
+            'booking_id' => $id,
+            'user_id' => $user->id,
+            'reason' => $request->reason,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        return $this->ok('Booking reported successfully', ['report_id' => $reportId], 201);
+    }
+
+    public function bookingInvoice(Request $request, int $id)
+    {
+        $user = $this->requireUser($request);
+
+        $booking = DB::table('bookings')
+            ->where('id', $id)
+            ->where('user_id', $user->id)
+            ->first();
+
+        if (!$booking) {
+            return $this->fail('Booking not found', [], 404);
+        }
+
+        return $this->ok('Invoice loaded', [
+            'booking' => $booking,
+            'services' => DB::table('booking_services')->where('booking_id', $id)->get(),
+            'payment' => DB::table('payments')->where('payable_id', $id)->first(),
+        ]);
+    }
+
+    public function bookingHistory(Request $request)
+    {
+        $user = $this->requireUser($request);
+
+        return $this->ok('Booking history loaded', DB::table('bookings')
+            ->where('user_id', $user->id)
+            ->whereIn('status', ['completed', 'cancelled'])
+            ->orderByDesc('booking_date')
+            ->get());
+    }
+
+    public function upcomingBookings(Request $request)
+    {
+        $user = $this->requireUser($request);
+
+        return $this->ok('Upcoming bookings loaded', DB::table('bookings')
+            ->where('user_id', $user->id)
+            ->whereIn('status', ['pending', 'confirmed'])
+            ->orderBy('booking_date')
+            ->get());
+    }
+
+    public function bookingDetails(Request $request, int $id)
+    {
+        return $this->showBooking($request, $id);
+    }
+
+    public function bookingServices(Request $request, int $id)
+    {
+        $user = $this->requireUser($request);
+
+        $booking = DB::table('bookings')
+            ->where('id', $id)
+            ->where('user_id', $user->id)
+            ->first();
+
+        if (!$booking) {
+            return $this->fail('Booking not found', [], 404);
+        }
+
+        return $this->ok('Booking services loaded', DB::table('booking_services')->where('booking_id', $id)->get());
+    }
+
+    public function bookingEmployee(Request $request, int $id)
+    {
+        $user = $this->requireUser($request);
+
+        $booking = DB::table('bookings')
+            ->where('id', $id)
+            ->where('user_id', $user->id)
+            ->first();
+
+        if (!$booking) {
+            return $this->fail('Booking not found', [], 404);
+        }
+
+        return $this->ok('Booking employee loaded', DB::table('employees')->where('id', $booking->employee_id)->first());
     }
 
     public function previewBooking(Request $request)
@@ -730,17 +1036,27 @@ class CustomerController extends Controller
             return $this->fail('Validation failed', $validator->errors()->toArray());
         }
 
-        DB::table('booking_selections')->updateOrInsert(
-            ['user_id' => $user->id],
-            [
+        $selectionQuery = DB::table('booking_selections')->where('user_id', $user->id);
+
+        if ($selectionQuery->exists()) {
+            $selectionQuery->update([
+                'provider_type' => $request->provider_type,
+                'provider_id' => $request->provider_id,
+                'service_id' => $request->service_id,
+                'employee_id' => $request->employee_id,
+                'updated_at' => now(),
+            ]);
+        } else {
+            DB::table('booking_selections')->insert([
+                'user_id' => $user->id,
                 'provider_type' => $request->provider_type,
                 'provider_id' => $request->provider_id,
                 'service_id' => $request->service_id,
                 'employee_id' => $request->employee_id,
                 'updated_at' => now(),
                 'created_at' => now(),
-            ]
-        );
+            ]);
+        }
 
         return $this->ok('Service selection saved');
     }
@@ -758,14 +1074,24 @@ class CustomerController extends Controller
             return $this->fail('Validation failed', $validator->errors()->toArray());
         }
 
-        DB::table('booking_pre_answers')->updateOrInsert(
-            ['user_id' => $user->id, 'service_id' => $request->service_id],
-            [
+        $answersQuery = DB::table('booking_pre_answers')
+            ->where('user_id', $user->id)
+            ->where('service_id', $request->service_id);
+
+        if ($answersQuery->exists()) {
+            $answersQuery->update([
+                'answers_json' => json_encode($request->answers),
+                'updated_at' => now(),
+            ]);
+        } else {
+            DB::table('booking_pre_answers')->insert([
+                'user_id' => $user->id,
+                'service_id' => $request->service_id,
                 'answers_json' => json_encode($request->answers),
                 'updated_at' => now(),
                 'created_at' => now(),
-            ]
-        );
+            ]);
+        }
 
         return $this->ok('Pre-booking answers saved');
     }
@@ -774,10 +1100,7 @@ class CustomerController extends Controller
     {
         $user = $this->requireUser($request);
 
-        $selection = DB::table('booking_selections')
-            ->where('user_id', $user->id)
-            ->first();
-
+        $selection = DB::table('booking_selections')->where('user_id', $user->id)->first();
         $answers = null;
 
         if ($selection) {
@@ -797,15 +1120,13 @@ class CustomerController extends Controller
 
     public function selectedServiceState(Request $request)
     {
-        $user = $this->authUser($request);
+        $user = $request->user();
 
         if (!$user) {
             return $this->ok('No session', ['selected' => null]);
         }
 
-        return $this->ok('Selected service state', DB::table('booking_selections')
-            ->where('user_id', $user->id)
-            ->first());
+        return $this->ok('Selected service state', DB::table('booking_selections')->where('user_id', $user->id)->first());
     }
 
     public function notifications(Request $request)
@@ -839,6 +1160,71 @@ class CustomerController extends Controller
         return $this->ok('Notification marked as read');
     }
 
+    public function wallet(Request $request)
+    {
+        $user = $this->requireUser($request);
+
+        $wallet = DB::table('wallets')->where('user_id', $user->id)->first();
+
+        if (!$wallet) {
+            $walletId = DB::table('wallets')->insertGetId([
+                'user_id' => $user->id,
+                'balance' => 0,
+                'created_at' => now(),
+                'updated_at' => now(),
+            ]);
+
+            $wallet = DB::table('wallets')->where('id', $walletId)->first();
+        }
+
+        return $this->ok('Wallet loaded', $wallet);
+    }
+
+    public function withdrawFromWallet(Request $request)
+    {
+        $user = $this->requireUser($request);
+
+        $validator = Validator::make($request->all(), [
+            'amount' => ['required', 'numeric', 'min:1'],
+        ]);
+
+        if ($validator->fails()) {
+            return $this->fail('Validation failed', $validator->errors()->toArray());
+        }
+
+        $wallet = DB::table('wallets')->where('user_id', $user->id)->first();
+
+        if (!$wallet) {
+            return $this->fail('Wallet not found', [], 404);
+        }
+
+        if ($wallet->balance < $request->amount) {
+            return $this->fail('Insufficient balance', [], 422);
+        }
+
+        DB::table('wallets')->where('user_id', $user->id)->decrement('balance', $request->amount);
+
+        $transactionId = DB::table('wallet_transactions')->insertGetId([
+            'user_id' => $user->id,
+            'type' => 'withdrawal',
+            'amount' => $request->amount,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        return $this->ok('Withdrawal completed', ['transaction_id' => $transactionId]);
+    }
+
+    public function walletTransactions(Request $request)
+    {
+        $user = $this->requireUser($request);
+
+        return $this->ok('Wallet transactions loaded', DB::table('wallet_transactions')
+            ->where('user_id', $user->id)
+            ->orderByDesc('created_at')
+            ->get());
+    }
+
     public function showProfile(Request $request)
     {
         $user = $this->requireUser($request);
@@ -865,30 +1251,27 @@ class CustomerController extends Controller
             return $this->fail('Validation failed', $validator->errors()->toArray());
         }
 
-        DB::table('users')->where('id', $user->id)->update(array_merge(
-            $request->only([
-                'full_name',
-                'phone',
-                'birth_date',
-                'governorate',
-                'city',
-                'profile_photo',
-                'notifications_enabled',
-                'language',
-            ]),
-            ['updated_at' => now()]
-        ));
+        $user->fill($request->only([
+            'full_name',
+            'phone',
+            'birth_date',
+            'governorate',
+            'city',
+            'profile_photo',
+            'notifications_enabled',
+            'language',
+        ]));
 
-        return $this->ok('Profile updated successfully', DB::table('users')->where('id', $user->id)->first());
+        $user->save();
+
+        return $this->ok('Profile updated successfully', $user);
     }
 
     public function showMedicalRecord(Request $request)
     {
         $user = $this->requireUser($request);
 
-        return $this->ok('Medical record loaded', DB::table('medical_records')
-            ->where('user_id', $user->id)
-            ->first());
+        return $this->ok('Medical record loaded', DB::table('medical_records')->where('user_id', $user->id)->first());
     }
 
     public function updateMedicalRecord(Request $request)
@@ -909,25 +1292,32 @@ class CustomerController extends Controller
             return $this->fail('Validation failed', $validator->errors()->toArray());
         }
 
-        DB::table('medical_records')->updateOrInsert(
-            ['user_id' => $user->id],
-            array_merge(
-                $request->only([
-                    'allergies',
-                    'skin_type',
-                    'hair_type',
-                    'previous_procedures',
-                    'medications',
-                    'chronic_conditions',
-                    'notes',
-                ]),
-                [
-                    'last_updated_at' => now(),
-                    'updated_at' => now(),
-                    'created_at' => now(),
-                ]
-            )
+        $data = array_merge(
+            $request->only([
+                'allergies',
+                'skin_type',
+                'hair_type',
+                'previous_procedures',
+                'medications',
+                'chronic_conditions',
+                'notes',
+            ]),
+            [
+                'last_updated_at' => now(),
+                'updated_at' => now(),
+            ]
         );
+
+        $recordQuery = DB::table('medical_records')->where('user_id', $user->id);
+
+        if ($recordQuery->exists()) {
+            $recordQuery->update($data);
+        } else {
+            DB::table('medical_records')->insert(array_merge($data, [
+                'user_id' => $user->id,
+                'created_at' => now(),
+            ]));
+        }
 
         return $this->ok('Medical record updated successfully');
     }
@@ -962,9 +1352,7 @@ class CustomerController extends Controller
         }
 
         if ($request->boolean('is_default', false)) {
-            DB::table('addresses')
-                ->where('user_id', $user->id)
-                ->update(['is_default' => false]);
+            DB::table('addresses')->where('user_id', $user->id)->update(['is_default' => false]);
         }
 
         $id = DB::table('addresses')->insertGetId([
@@ -980,200 +1368,6 @@ class CustomerController extends Controller
             'updated_at' => now(),
         ]);
 
-        return $this->ok('Address stored successfully', [
-            'address_id' => $id,
-        ], 201);
-    }
-
-    public function archiveBookings(Request $request)
-    {
-        $user = $this->requireUser($request);
-
-        return $this->ok('Archived bookings loaded', DB::table('bookings')
-            ->where('user_id', $user->id)
-            ->whereIn('status', ['completed', 'cancelled'])
-            ->orderByDesc('created_at')
-            ->get());
-    }
-
-    public function listBookings(Request $request)
-    {
-        $user = $this->requireUser($request);
-
-        return $this->ok('Bookings loaded', DB::table('bookings')
-            ->where('user_id', $user->id)
-            ->orderByDesc('created_at')
-            ->get());
-    }
-
-    public function showBooking(Request $request, int $id)
-    {
-        $user = $this->requireUser($request);
-
-        $booking = DB::table('bookings')
-            ->where('id', $id)
-            ->where('user_id', $user->id)
-            ->first();
-
-        if (!$booking) {
-            return $this->fail('Booking not found', [], 404);
-        }
-
-        return $this->ok('Booking details loaded', [
-            'booking' => $booking,
-            'services' => DB::table('booking_services')->where('booking_id', $id)->get(),
-            'answers' => DB::table('booking_question_answers')->where('booking_id', $id)->get(),
-            'review' => DB::table('reviews')->where('booking_id', $id)->first(),
-        ]);
-    }
-
-    public function createBooking(Request $request)
-    {
-        $user = $this->requireUser($request);
-
-        $validator = Validator::make($request->all(), [
-            'provider_type' => ['required', 'in:expert,salon,beauty_center'],
-            'provider_id' => ['required', 'integer'],
-            'employee_id' => ['nullable', 'integer'],
-            'booking_date' => ['required', 'date'],
-            'start_time' => ['required'],
-            'end_time' => ['required'],
-            'services' => ['required', 'array', 'min:1'],
-            'services.*.service_id' => ['required', 'integer'],
-            'services.*.price_snapshot' => ['required', 'numeric'],
-            'services.*.duration_minutes' => ['required', 'integer'],
-            'total_price' => ['required', 'numeric'],
-            'deposit_amount' => ['required', 'numeric'],
-            'remaining_amount' => ['required', 'numeric'],
-            'notes' => ['nullable', 'string'],
-            'answers' => ['nullable', 'array'],
-        ]);
-
-        if ($validator->fails()) {
-            return $this->fail('Validation failed', $validator->errors()->toArray());
-        }
-
-        $bookingId = DB::transaction(function () use ($request, $user) {
-            $bookingId = DB::table('bookings')->insertGetId([
-                'user_id' => $user->id,
-                'provider_type' => $request->provider_type,
-                'provider_id' => $request->provider_id,
-                'employee_id' => $request->employee_id,
-                'booking_date' => $request->booking_date,
-                'start_time' => $request->start_time,
-                'end_time' => $request->end_time,
-                'total_price' => $request->total_price,
-                'deposit_amount' => $request->deposit_amount,
-                'remaining_amount' => $request->remaining_amount,
-                'status' => 'pending',
-                'notes' => $request->notes,
-                'created_at' => now(),
-                'updated_at' => now(),
-            ]);
-
-            foreach ($request->services as $service) {
-                DB::table('booking_services')->insert([
-                    'booking_id' => $bookingId,
-                    'service_id' => $service['service_id'],
-                    'employee_id' => $service['employee_id'] ?? $request->employee_id,
-                    'price_snapshot' => $service['price_snapshot'],
-                    'duration_minutes' => $service['duration_minutes'],
-                    'created_at' => now(),
-                    'updated_at' => now(),
-                ]);
-            }
-
-            if (is_array($request->answers)) {
-                foreach ($request->answers as $answer) {
-                    DB::table('booking_question_answers')->insert([
-                        'booking_id' => $bookingId,
-                        'question_id' => $answer['question_id'],
-                        'answer_text' => $answer['answer_text'],
-                        'created_at' => now(),
-                        'updated_at' => now(),
-                    ]);
-                }
-            }
-
-            return $bookingId;
-        });
-
-        return $this->ok('Booking created successfully', [
-            'booking_id' => $bookingId,
-        ], 201);
-    }
-
-    public function cancelBooking(Request $request, int $id)
-    {
-        $user = $this->requireUser($request);
-
-        $booking = DB::table('bookings')
-            ->where('id', $id)
-            ->where('user_id', $user->id)
-            ->first();
-
-        if (!$booking) {
-            return $this->fail('Booking not found', [], 404);
-        }
-
-        DB::table('bookings')->where('id', $id)->update([
-            'status' => 'cancelled',
-            'cancelled_by' => 'user',
-            'cancellation_reason' => $request->input('reason'),
-            'updated_at' => now(),
-        ]);
-
-        return $this->ok('Booking cancelled successfully');
-    }
-
-    public function confirmBookingPayment(Request $request, int $id)
-    {
-        $user = $this->requireUser($request);
-
-        $booking = DB::table('bookings')
-            ->where('id', $id)
-            ->where('user_id', $user->id)
-            ->first();
-
-        if (!$booking) {
-            return $this->fail('Booking not found', [], 404);
-        }
-
-        $paymentId = DB::table('payments')->insertGetId([
-            'user_id' => $user->id,
-            'payable_id' => $id,
-            'currency' => $request->input('currency', 'USD'),
-            'payment_gateway' => $request->input('payment_gateway', 'manual'),
-            'gateway_transaction_id' => $request->input('gateway_transaction_id', (string) Str::uuid()),
-            'idempotency_key' => $request->input('idempotency_key', (string) Str::uuid()),
-            'paid_at' => now(),
-            'created_at' => now(),
-            'updated_at' => now(),
-        ]);
-
-        DB::table('bookings')->where('id', $id)->update([
-            'status' => 'confirmed',
-            'updated_at' => now(),
-        ]);
-
-        DB::table('notifications')->insert([
-            'recipient_type' => 'user',
-            'recipient_id' => $user->id,
-            'type' => 'payment_confirmed',
-            'title' => 'Payment confirmed',
-            'body' => 'Your booking payment has been confirmed.',
-            'data_json' => json_encode([
-                'booking_id' => $id,
-                'payment_id' => $paymentId,
-            ]),
-            'is_read' => false,
-            'created_at' => now(),
-            'updated_at' => now(),
-        ]);
-
-        return $this->ok('Payment confirmed and booking updated', [
-            'payment_id' => $paymentId,
-            'booking_id' => $id,
-        ]);
+        return $this->ok('Address stored successfully', ['address_id' => $id], 201);
     }
 }
