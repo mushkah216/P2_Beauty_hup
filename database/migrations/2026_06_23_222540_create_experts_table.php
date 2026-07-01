@@ -15,7 +15,7 @@ return new class extends Migration
             $table->id();
             $table->string('full_name');
             $table->string('email')->unique();
-            $table->string('password');
+           // $table->string('password');
             $table->string('phone');
             $table->string('profile_photo')->nullable();
             $table->string('cover_photo')->nullable();
@@ -34,7 +34,11 @@ return new class extends Migration
             $table->enum('account_status',['pending','active','suspended','rejected','deleted'])->default('pending');
             $table->date('subscription_expires_at')->nullable();
             $table->date('birth_date')->nullable();
+            $table->string('password_hash');
             $table->timestamp('last_login_at')->nullable();
+            $table->string('otp_code')->nullable();
+            $table->timestamp('otp_expires_at')->nullable();
+            $table->timestamp('email_verified_at')->nullable();
             $table->timestamps();
         });
     }
