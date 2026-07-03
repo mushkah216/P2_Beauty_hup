@@ -1,6 +1,8 @@
 <?php
 
 use App\Http\Controllers\Expert\ExpertController;
+use App\Http\Controllers\Expert\PostController;
+use App\Http\Controllers\Expert\StoryController;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 
@@ -10,6 +12,7 @@ Route::get('/user', function (Request $request) {
 
 //expert 
 Route::prefix('expert')->group(function () {
+    
     Route::prefix('auth')->group(function () {
 
         // Guest routes
@@ -29,5 +32,23 @@ Route::prefix('expert')->group(function () {
             Route::post('change_password', [ExpertController::class, 'changePassword']);
             Route::delete('delete_account',[ExpertController::class, 'deleteAccount']);
         });
+   });
     });
+
+
+Route::prefix('expert')->middleware(['auth:sanctum', 'expert.is_active'])->group(function () {
+
+    // posts
+    Route::get('getMyPosts',            [PostController::class, 'getMyPosts']);
+    Route::post('createPost',           [PostController::class, 'createPost']);
+    Route::get('getPostDetails/{post}', [PostController::class, 'getPostDetails']);
+    Route::post('updatePost/{post}',     [PostController::class, 'updatePost']);
+    Route::delete('deletePost/{post}',  [PostController::class, 'deletePost']);
+
+     //story
+     Route::get('getMyStories',         [StoryController::class, 'getMyStories']);
+     Route::post('createStory',         [StoryController::class, 'createStory']);
+     Route::delete('deleteStory/{story}',  [StoryController::class, 'deleteStory']);
+       
+   
 });
