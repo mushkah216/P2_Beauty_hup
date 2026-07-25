@@ -3,6 +3,7 @@
 use App\Http\Controllers\Expert\ExpertController;
 use App\Http\Controllers\Expert\PostController;
 use App\Http\Controllers\Expert\StoryController;
+use App\Http\Controllers\ServiceController;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 
@@ -51,4 +52,22 @@ Route::prefix('expert')->middleware(['auth:sanctum', 'expert.is_active'])->group
      Route::delete('deleteStory/{story}',  [StoryController::class, 'deleteStory']);
        
    
+
+Route::middleware(['auth:sanctum', 'expert.is_active'])->group(function () {
+
+    // Services CRUD
+    Route::get   ('services',                        [ServiceController::class, 'index']);
+    Route::post  ('services',                        [ServiceController::class, 'store']);
+    Route::post   ('services/{service}',              [ServiceController::class, 'update']);
+    Route::delete('services/{service}',              [ServiceController::class, 'destroy']);
+
+    // Service Instructions
+    Route::post  ('services/{service}/instructions', [ServiceController::class, 'updateInstructions']);
+
+    // Pre-Booking Questions
+    Route::post  ('services/{service}/questions',    [ServiceController::class, 'setQuestions']);
+
+    // Min Bookings Remote
+    Route::post   ('services/{service}/min-bookings', [ServiceController::class, 'updateMinBookings']);
+    });
 });
