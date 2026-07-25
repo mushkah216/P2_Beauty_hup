@@ -1,6 +1,8 @@
 <?php
 
 use App\Http\Controllers\Api\V1\CustomerController;
+use App\Http\Controllers\Expert\BookingController;
+use App\Http\Controllers\Expert\CalendarController;
 use App\Http\Controllers\Expert\ExpertController;
 use App\Http\Controllers\Expert\PostController;
 use App\Http\Controllers\Expert\StoryController;
@@ -152,4 +154,17 @@ Route::prefix('expert')->middleware(['auth:sanctum', 'expert.is_active'])->group
 
     // Min Bookings Remote
     Route::post('services/{service}/min-bookings', [ServiceController::class, 'updateMinBookings'])->name('expert.services.min_bookings');
+});
+
+// ==================== Expert - Bookings ====================
+Route::prefix('expert')->middleware(['auth:sanctum', 'expert.is_active'])->group(function () {
+    Route::get('bookings', [BookingController::class, 'index'])->name('expert.bookings.index');
+    Route::get('bookings/{booking}', [BookingController::class, 'show'])->name('expert.bookings.show');
+    Route::delete('bookings/{booking}', [BookingController::class, 'destroy'])->name('expert.bookings.cancel');
+});
+
+// ==================== Expert - Calendar ====================
+Route::prefix('expert')->middleware(['auth:sanctum', 'expert.is_active'])->group(function () {
+    Route::get('calendar', [CalendarController::class, 'index'])->name('expert.calendar.index');
+    Route::put('calendar', [CalendarController::class, 'update'])->name('expert.calendar.update');
 });
