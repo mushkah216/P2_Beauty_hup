@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\Api\V1\Auth\AuthController;
 use App\Http\Controllers\Api\V1\CustomerController;
 use App\Http\Controllers\Expert\ExpertController;
 use App\Http\Controllers\Expert\PostController;
@@ -11,93 +12,156 @@ Route::get('/user', function (Request $request) {
     return $request->user();
 })->middleware('auth:sanctum');
 
+/*
+|--------------------------------------------------------------------------
+| Customer / User Side
+|--------------------------------------------------------------------------
+*/
 Route::prefix('customer')->name('customer.')->group(function () {
-    Route::prefix('auth')->name('auth.')->group(function () {
-        Route::post('guest_login', [CustomerController::class, 'guestLogin'])->name('guest_login');
-        Route::post('register', [CustomerController::class, 'register'])->name('register');
-        Route::post('login', [CustomerController::class, 'login'])->name('login');
-        Route::post('forgot_password', [CustomerController::class, 'forgotPassword'])->name('forgot_password');
-        Route::post('verify_otp', [CustomerController::class, 'verifyOtp'])->name('verify_otp');
-        Route::post('reset_password', [CustomerController::class, 'resetPassword'])->name('reset_password');
+    /*
+    |--------------------------------------------------------------------------
+    | Authentication
+    |--------------------------------------------------------------------------
+    */
+    Route::prefix('auth')->name('auth.')->controller(AuthController::class)->group(function () {
+        Route::post('guest_login', 'guestLogin')->name('guest_login');
+        Route::post('register', 'register')->name('register');
+        Route::post('resend_otp', 'resendOtp')->name('resend_otp');
+        Route::post('verify_otp', 'verifyOtp')->name('verify_otp');
+        Route::post('login', 'login')->name('login');
+        Route::post('forgot_password', 'forgotPassword')->name('forgot_password');
+        Route::post('reset_password', 'resetPassword')->name('reset_password');
 
         Route::middleware('auth:sanctum')->group(function () {
-            Route::post('logout', [CustomerController::class, 'logout'])->name('logout');
-            Route::get('profile', [CustomerController::class, 'showProfile'])->name('profile.show');
-            Route::post('update_profile', [CustomerController::class, 'updateProfile'])->name('profile.update');
-            Route::get('medical_record', [CustomerController::class, 'showMedicalRecord'])->name('medical_record.show');
-            Route::post('medical_record', [CustomerController::class, 'updateMedicalRecord'])->name('medical_record.update');
-            Route::get('addresses', [CustomerController::class, 'listAddresses'])->name('addresses.index');
-            Route::post('addresses', [CustomerController::class, 'storeAddress'])->name('addresses.store');
+            Route::post('change_password', 'changePassword')->name('change_password');
+            Route::post('logout', 'logout')->name('logout');
+            Route::delete('delete_account', 'deleteAccount')->name('delete_account');
         });
     });
 
-    Route::get('selected-service-state', [CustomerController::class, 'selectedServiceState'])->name('selected_service_state');
+    /*
+    |--------------------------------------------------------------------------
+    | Profile / Medical / Addresses
+    |--------------------------------------------------------------------------
+    */
+    Route::middleware('auth:sanctum')->controller(CustomerController::class)->group(function () {
+        Route::get('profile', 'showProfile')->name('profile.show');
+        Route::post('update_profile', 'updateProfile')->name('profile.update');
 
-    Route::middleware('auth:sanctum')->group(function () {
-        Route::get('home', [CustomerController::class, 'home'])->name('home');
+        Route::get('medical_record', 'showMedicalRecord')->name('medical_record.show');
+        Route::post('medical_record', 'updateMedicalRecord')->name('medical_record.update');
 
-        Route::get('providers/top-rated/salons', [CustomerController::class, 'topRatedSalons'])->name('providers.top_rated.salons');
-        Route::get('providers/top-rated/beauty-centers', [CustomerController::class, 'topRatedBeautyCenters'])->name('providers.top_rated.beauty_centers');
-        Route::get('providers/top-rated/experts', [CustomerController::class, 'topRatedExperts'])->name('providers.top_rated.experts');
+        Route::get('addresses', 'listAddresses')->name('addresses.index');
+        Route::post('addresses', 'storeAddress')->name('addresses.store');
+    });
 
-        Route::get('providers/search', [CustomerController::class, 'searchProviders'])->name('providers.search');
-        Route::get('providers/{type}/{id}', [CustomerController::class, 'showProvider'])->name('providers.show');
-        Route::get('providers/{type}/{id}/posts', [CustomerController::class, 'providerPosts'])->name('providers.posts');
+    /*
+    |--------------------------------------------------------------------------
+    | Public / Discovery
+    |--------------------------------------------------------------------------
+    */
+    Route::get('selected-service-state', [CustomerController::class, 'selectedServiceState'])
+        ->name('selected_service_state');
 
-        Route::get('feed/posts', [CustomerController::class, 'feedPosts'])->name('feed.posts');
+    Route::middleware('auth:sanctum')->controller(CustomerController::class)->group(function () {
+        Route::get('home', 'home')->name('home');
 
-        Route::get('providers/filter/nearby', [CustomerController::class, 'filterNearby'])->name('providers.filter.nearby');
-        Route::get('providers/filter/governorate', [CustomerController::class, 'filterByGovernorate'])->name('providers.filter.governorate');
-        Route::get('providers/filter/city', [CustomerController::class, 'filterByCity'])->name('providers.filter.city');
-        Route::get('providers/filter/service-type', [CustomerController::class, 'filterByServiceType'])->name('providers.filter.service_type');
-        Route::get('providers/filter/price', [CustomerController::class, 'filterByPrice'])->name('providers.filter.price');
+        Route::get('providers/top-rated/salons', 'topRatedSalons')->name('providers.top_rated.salons');
+        Route::get('providers/top-rated/beauty-centers', 'topRatedBeautyCenters')->name('providers.top_rated.beauty_centers');
+        Route::get('providers/top-rated/experts', 'topRatedExperts')->name('providers.top_rated.experts');
 
-        Route::get('providers/{type}/{id}/employees', [CustomerController::class, 'providerEmployees'])->name('providers.employees');
-        Route::get('providers/{type}/{id}/services', [CustomerController::class, 'providerServices'])->name('providers.services');
-        Route::get('services/{id}', [CustomerController::class, 'serviceDetails'])->name('services.show');
-        Route::get('services/{id}/questions', [CustomerController::class, 'serviceQuestions'])->name('services.questions');
+        Route::get('providers/search', 'searchProviders')->name('providers.search');
+        Route::get('providers/{type}/{id}', 'showProvider')->name('providers.show');
+        Route::get('providers/{type}/{id}/posts', 'providerPosts')->name('providers.posts');
 
-        Route::get('providers/{type}/{id}/schedule', [CustomerController::class, 'providerSchedule'])->name('providers.schedule');
-        Route::get('providers/{type}/{id}/employees/{employeeId}/schedule', [CustomerController::class, 'employeeSchedule'])->name('providers.employee_schedule');
+        Route::get('feed/posts', 'feedPosts')->name('feed.posts');
 
-        Route::get('posts/{id}', [CustomerController::class, 'postDetails'])->name('posts.show');
-        Route::get('posts/{id}/comments', [CustomerController::class, 'postComments'])->name('posts.comments.index');
-        Route::post('posts/{id}/comments', [CustomerController::class, 'addPostComment'])->name('posts.comments.store');
-        Route::post('posts/{id}/comments/{commentId}/reply', [CustomerController::class, 'replyToComment'])->name('posts.comments.reply');
-        Route::post('posts/{id}/like', [CustomerController::class, 'toggleLikePost'])->name('posts.like');
-        Route::post('posts/{id}/favorite', [CustomerController::class, 'toggleFavoritePost'])->name('posts.favorite');
+        Route::get('providers/filter/nearby', 'filterNearby')->name('providers.filter.nearby');
+        Route::get('providers/filter/governorate', 'filterByGovernorate')->name('providers.filter.governorate');
+        Route::get('providers/filter/city', 'filterByCity')->name('providers.filter.city');
+        Route::get('providers/filter/service-type', 'filterByServiceType')->name('providers.filter.service_type');
+        Route::get('providers/filter/price', 'filterByPrice')->name('providers.filter.price');
 
-        Route::post('providers/{type}/{id}/follow', [CustomerController::class, 'toggleFollowProvider'])->name('providers.follow');
-        Route::post('providers/{type}/{id}/block', [CustomerController::class, 'toggleBlockProvider'])->name('providers.block');
-        Route::post('users/{id}/block', [CustomerController::class, 'toggleBlockUser'])->name('users.block');
+        Route::get('providers/{type}/{id}/employees', 'providerEmployees')->name('providers.employees');
+        Route::get('providers/{type}/{id}/services', 'providerServices')->name('providers.services');
+        Route::get('services/{id}', 'serviceDetails')->name('services.show');
+        Route::get('services/{id}/questions', 'serviceQuestions')->name('services.questions');
 
-        Route::post('bookings', [CustomerController::class, 'storeBooking'])->name('bookings.store');
-        Route::get('bookings/{id}', [CustomerController::class, 'showBooking'])->name('bookings.show');
-        Route::get('bookings/{id}/status', [CustomerController::class, 'bookingStatus'])->name('bookings.status');
-        Route::post('bookings/{id}/cancel', [CustomerController::class, 'cancelBooking'])->name('bookings.cancel');
-        Route::post('bookings/{id}/reschedule', [CustomerController::class, 'rescheduleBooking'])->name('bookings.reschedule');
-        Route::post('bookings/{id}/rate', [CustomerController::class, 'rateBooking'])->name('bookings.rate');
-        Route::post('bookings/{id}/report', [CustomerController::class, 'reportBooking'])->name('bookings.report');
-        Route::get('bookings/{id}/invoice', [CustomerController::class, 'bookingInvoice'])->name('bookings.invoice');
-        Route::get('bookings/history', [CustomerController::class, 'bookingHistory'])->name('bookings.history');
-        Route::get('bookings/upcoming', [CustomerController::class, 'upcomingBookings'])->name('bookings.upcoming');
-        Route::get('bookings/{id}/details', [CustomerController::class, 'bookingDetails'])->name('bookings.details');
-        Route::get('bookings/{id}/services', [CustomerController::class, 'bookingServices'])->name('bookings.services');
-        Route::get('bookings/{id}/employee', [CustomerController::class, 'bookingEmployee'])->name('bookings.employee');
-        Route::post('bookings/preview', [CustomerController::class, 'previewBooking'])->name('bookings.preview');
-        Route::post('bookings/service-selection', [CustomerController::class, 'storeServiceSelection'])->name('bookings.service_selection');
-        Route::post('bookings/answers', [CustomerController::class, 'storeBookingAnswers'])->name('bookings.answers');
-        Route::get('bookings/summary', [CustomerController::class, 'bookingSummary'])->name('bookings.summary');
+        Route::get('providers/{type}/{id}/schedule', 'providerSchedule')->name('providers.schedule');
+        Route::get('providers/{type}/{id}/employees/{employeeId}/schedule', 'employeeSchedule')->name('providers.employee_schedule');
+    });
 
-        Route::get('notifications', [CustomerController::class, 'notifications'])->name('notifications.index');
-        Route::post('notifications/{id}/read', [CustomerController::class, 'markNotificationRead'])->name('notifications.read');
+    /*
+    |--------------------------------------------------------------------------
+    | Posts / Social
+    |--------------------------------------------------------------------------
+    */
+    Route::middleware('auth:sanctum')->controller(CustomerController::class)->group(function () {
+        Route::get('posts/{id}', 'postDetails')->name('posts.show');
+        Route::get('posts/{id}/comments', 'postComments')->name('posts.comments.index');
+        Route::post('posts/{id}/comments', 'addPostComment')->name('posts.comments.store');
+        Route::post('posts/{id}/comments/{commentId}/reply', 'replyToComment')->name('posts.comments.reply');
+        Route::post('posts/{id}/like', 'toggleLikePost')->name('posts.like');
+        Route::post('posts/{id}/favorite', 'toggleFavoritePost')->name('posts.favorite');
 
-        Route::get('wallet', [CustomerController::class, 'wallet'])->name('wallet.show');
-        Route::post('wallet/withdraw', [CustomerController::class, 'withdrawFromWallet'])->name('wallet.withdraw');
-        Route::get('wallet/transactions', [CustomerController::class, 'walletTransactions'])->name('wallet.transactions');
+        Route::post('providers/{type}/{id}/follow', 'toggleFollowProvider')->name('providers.follow');
+        Route::post('providers/{type}/{id}/block', 'toggleBlockProvider')->name('providers.block');
+        Route::post('users/{id}/block', 'toggleBlockUser')->name('users.block');
+    });
+
+    /*
+    |--------------------------------------------------------------------------
+    | Bookings
+    |--------------------------------------------------------------------------
+    */
+    Route::middleware('auth:sanctum')->controller(CustomerController::class)->group(function () {
+        Route::post('bookings', 'storeBooking')->name('bookings.store');
+        Route::get('bookings/{id}', 'showBooking')->name('bookings.show');
+        Route::get('bookings/{id}/status', 'bookingStatus')->name('bookings.status');
+        Route::post('bookings/{id}/cancel', 'cancelBooking')->name('bookings.cancel');
+        Route::post('bookings/{id}/reschedule', 'rescheduleBooking')->name('bookings.reschedule');
+        Route::post('bookings/{id}/rate', 'rateBooking')->name('bookings.rate');
+        Route::post('bookings/{id}/report', 'reportBooking')->name('bookings.report');
+        Route::get('bookings/{id}/invoice', 'bookingInvoice')->name('bookings.invoice');
+        Route::get('bookings/history', 'bookingHistory')->name('bookings.history');
+        Route::get('bookings/upcoming', 'upcomingBookings')->name('bookings.upcoming');
+        Route::get('bookings/{id}/details', 'bookingDetails')->name('bookings.details');
+        Route::get('bookings/{id}/services', 'bookingServices')->name('bookings.services');
+        Route::get('bookings/{id}/employee', 'bookingEmployee')->name('bookings.employee');
+
+        Route::post('bookings/preview', 'previewBooking')->name('bookings.preview');
+        Route::post('bookings/service-selection', 'storeServiceSelection')->name('bookings.service_selection');
+        Route::post('bookings/answers', 'storeBookingAnswers')->name('bookings.answers');
+        Route::get('bookings/summary', 'bookingSummary')->name('bookings.summary');
+    });
+
+    /*
+    |--------------------------------------------------------------------------
+    | Notifications
+    |--------------------------------------------------------------------------
+    */
+    Route::middleware('auth:sanctum')->controller(CustomerController::class)->group(function () {
+        Route::get('notifications', 'notifications')->name('notifications.index');
+        Route::post('notifications/{id}/read', 'markNotificationRead')->name('notifications.read');
+    });
+
+    /*
+    |--------------------------------------------------------------------------
+    | Wallet
+    |--------------------------------------------------------------------------
+    */
+    Route::middleware('auth:sanctum')->controller(CustomerController::class)->group(function () {
+        Route::get('wallet', 'wallet')->name('wallet.show');
+        Route::post('wallet/withdraw', 'withdrawFromWallet')->name('wallet.withdraw');
+        Route::get('wallet/transactions', 'walletTransactions')->name('wallet.transactions');
     });
 });
 
+/*
+|--------------------------------------------------------------------------
+| Expert Side
+|--------------------------------------------------------------------------
+*/
 Route::prefix('expert')->name('expert.')->group(function () {
     Route::prefix('auth')->name('auth.')->group(function () {
         Route::post('register', [ExpertController::class, 'register'])->name('register');
