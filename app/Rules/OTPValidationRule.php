@@ -2,33 +2,69 @@
 
 namespace App\Rules;
 
+use App\Models\Expert;
+use App\Models\User;
 use Closure;
+use Illuminate\Contracts\Validation\DataAwareRule;
 use Illuminate\Contracts\Validation\ValidationRule;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 
-class OTPValidationRule implements ValidationRule
+class OTPValidationRule implements ValidationRule, DataAwareRule
 {
-    public function __construct(protected string $table) {}
+    protected array $data = [];
+
+    public function __construct(
+        protected string $table = 'users',
+        protected string $emailField = 'email'
+    ) {
+    }
+
+    public function setData(array $data): static
+    {
+        $this->data = $data;
+
+        return $this;
+    }
 
     public function validate(string $attribute, mixed $value, Closure $fail): void
     {
-        $record = DB::table($this->table)
-            ->where('email', request('email'))
-            ->first();
+        $email = $this->data[$this->emailField] ?? null;
 
-        if (!$record) {
-            $fail('البريد الإلكتروني غير موجود.');
+        if (!is_string($email) || trim($email) === '') {
+            $fail('البريد الإلكتروني مطلوب للتحقق.');
             return;
         }
 
-        if (!$record->otp_code || !Hash::check($value, $record->otp_code)) {
-            $fail('كود التحقق غير صحيح.');
+        $modelClass = $this->resolveModelClass();
+
+        $user = $modelClass::where('email', $email)->first();
+
+        if (!$user) {
+            $fail('الحساب غير موجود.');
             return;
         }
 
-        if (now()->isAfter($record->otp_expires_at)) {
-            $fail('انتهت صلاحية كود التحقق.');
+        if (!$user->otp_code || !$user->otp_expires_at) {
+            $fail('لا يوجد رمز تحقق صالح.');
+            return;
         }
+
+        if (now()->greaterThan($user->otp_expires_at)) {
+            $fail('انتهت صلاحية رمز التحقق.');
+            return;
+        }
+
+        if (!Hash::check((string) $value, $user->otp_code)) {
+            $fail('رمز التحقق غير صحيح.');
+        }
+    }
+
+    private function resolveModelClass(): string
+    {
+        return match ($this->table) {
+            'users' => User::class,
+            'experts' => Expert::class,
+            default => throw new \InvalidArgumentException("Unsupported table [{$this->table}]."),
+        };
     }
 }

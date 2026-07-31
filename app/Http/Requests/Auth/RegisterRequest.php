@@ -2,9 +2,9 @@
 
 namespace App\Http\Requests\Auth;
 
-use Illuminate\Foundation\Http\FormRequest;
+use App\Http\Requests\ApiRequest;
 
-class RegisterRequest extends FormRequest
+class RegisterRequest extends ApiRequest
 {
     public function authorize(): bool
     {
@@ -17,7 +17,7 @@ class RegisterRequest extends FormRequest
             'full_name'  => ['required', 'string', 'max:100'],
             'email'      => ['required', 'email', 'max:150', 'unique:users,email'],
             'phone'      => ['nullable', 'string', 'max:20', 'unique:users,phone'],
-            'birth_date' => ['nullable', 'date'],
+            'birth_date'  => ['nullable', 'date'],
             'gender'     => ['nullable', 'in:male,female'],
             'language'   => ['nullable', 'in:ar,en'],
             'password'   => ['required', 'string', 'min:8', 'confirmed'],

@@ -2,17 +2,20 @@
 
 namespace App\Notifications;
 
-use Illuminate\Notifications\Notification;
+use Illuminate\Bus\Queueable;
 use Illuminate\Notifications\Messages\MailMessage;
-use Illuminate\Support\Facades\Hash;
+use Illuminate\Notifications\Notification;
 
 class OTPNotification extends Notification
 {
-    public string $otp;
+    use Queueable;
 
-    public function __construct()
-    {
-        $this->otp = str_pad(random_int(0, 999999), 6, '0', STR_PAD_LEFT);
+    public function __construct(
+        public string $otp,
+        public string $subject = 'Beauty Hub — رمز التحقق',
+        public string $headline = 'رمز التحقق الخاص بك هو:',
+        public string $description = 'استخدم الرمز التالي لإكمال عملية التحقق.'
+    ) {
     }
 
     public function via(object $notifiable): array
@@ -22,18 +25,13 @@ class OTPNotification extends Notification
 
     public function toMail(object $notifiable): MailMessage
     {
-        // احفظ الـ OTP على الموديل قبل ما تبعثه
-        $notifiable->update([
-            'otp_code'       => Hash::make($this->otp),
-            'otp_expires_at' => now()->addMinutes(10),
-        ]);
-
         return (new MailMessage)
-            ->subject('Beauty Hub — كود التحقق')
-            ->greeting('مرحباً ' . $notifiable->full_name)
-            ->line('كود التحقق الخاص بك هو:')
-            ->line('**' . $this->otp . '**')
-            ->line('صالح لمدة 10 دقائق.')
-            ->line('إذا لم تطلب هذا الكود، تجاهل هذه الرسالة.');
+            ->subject($this->subject)
+            ->greeting('مرحباً ' . ($notifiable->full_name ?? ''))
+            ->line($this->headline)
+            ->line($this->description)
+            ->line('رمز التحقق: ' . $this->otp)
+            ->line('هذا الرمز صالح لمدة 10 دقائق.')
+            ->line('إذا لم تطلب هذا الرمز، يمكنك تجاهل هذه الرسالة.');
     }
 }

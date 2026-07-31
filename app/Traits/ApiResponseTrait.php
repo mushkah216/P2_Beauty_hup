@@ -1,4 +1,5 @@
 <?php
+
 namespace App\Traits;
 
 trait ApiResponseTrait
@@ -11,24 +12,29 @@ trait ApiResponseTrait
             'message' => __($message),
             'status_code' => $statusCode,
         ];
+
         if (is_null($data) || (is_array($data) && empty($data))) {
             unset($response['data']);
         }
 
-        return response()->json($response,$statusCode);
+        return response()->json($response, $statusCode);
     }
 
     public function sendError($errorMessage, $statusCode, $data = [])
     {
-        $response=[
-            'success'  => false,
-            'error_message'    => __($errorMessage),
-            'status_code'    => $statusCode
+        $message = __($errorMessage);
+
+        $response = [
+            'success'       => false,
+            'message'       => $message,
+            'error_message' => $message,
+            'status_code'   => $statusCode,
         ];
+
         if (!(is_null($data) || (is_array($data) && empty($data)))) {
             $response['data'] = $data;
         }
 
-        return response()->json($response,$statusCode);
+        return response()->json($response, $statusCode);
     }
 }

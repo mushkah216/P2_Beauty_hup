@@ -3,9 +3,9 @@
 namespace App\Http\Requests\Auth;
 
 use App\Rules\OTPValidationRule;
-use Illuminate\Foundation\Http\FormRequest;
+use App\Http\Requests\ApiRequest;
 
-class VerifyOtpRequest extends FormRequest
+class VerifyOtpRequest extends ApiRequest
 {
     public function authorize(): bool
     {
@@ -27,7 +27,7 @@ class VerifyOtpRequest extends FormRequest
             'email.email'    => 'صيغة البريد الإلكتروني غير صحيحة.',
             'email.exists'   => 'البريد الإلكتروني غير مسجل.',
             'otp.required'   => 'رمز التحقق مطلوب.',
-            'otp.size'       => 'رمز التحقق يجب أن يكون 6 أرقام.',
+            'otp.size'       => 'رمز التحقق يجب أن يكون 5 أرقام.',
         ];
     }
 }

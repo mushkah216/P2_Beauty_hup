@@ -2,9 +2,9 @@
 
 namespace App\Http\Requests\Auth;
 
-use Illuminate\Foundation\Http\FormRequest;
+use App\Http\Requests\ApiRequest;
 
-class ResendOtpRequest extends FormRequest
+class ResendOtpRequest extends ApiRequest
 {
     public function authorize(): bool
     {
