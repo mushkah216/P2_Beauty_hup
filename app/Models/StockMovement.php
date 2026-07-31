@@ -5,26 +5,23 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
-/**
- * سجل كل حركة دخول/خروج على المخزون (audit trail).
- * ما منعدّل stock_quantity بدون ما ننزّل حركة هون.
- */
 class StockMovement extends Model
 {
-    public $timestamps = false; // بالجدول في created_at بس
+    //
+    public $timestamps = false; // بالـ ERD في created_at بس
 
-    /** movement_type — مطابقة للـ enum بالداتابيز */
+    /** movement_type */
     public const TYPE_IN         = 'in';
     public const TYPE_OUT        = 'out';
     public const TYPE_ADJUSTMENT = 'adjustment';
 
-    /** reason — مطابقة للـ enum بالداتابيز */
-    public const REASON_PURCHASE    = 'purchase';      // شراء مواد
-    public const REASON_SALE        = 'sale';          // بيع منتج
-    public const REASON_CONSUMPTION = 'booking_used';  // استهلاك بخدمة
-    public const REASON_RETURN      = 'return';        // إرجاع
-    public const REASON_STOCKTAKE   = 'adjustment';    // تسوية جرد
-    public const REASON_EXPIRED     = 'expired';       // تلف / انتهاء صلاحية
+    /** reason */
+    public const REASON_PURCHASE    = 'purchase';     // شراء مواد
+    public const REASON_CONSUMPTION = 'consumption';  // استهلاك بخدمة
+    public const REASON_SALE        = 'sale';         // بيع منتج
+    public const REASON_WASTE       = 'waste';        // تلف / انتهاء صلاحية
+    public const REASON_RETURN      = 'return';       // إرجاع
+    public const REASON_STOCKTAKE   = 'stocktake';    // تسوية جرد
 
     protected $fillable = [
         'product_id',

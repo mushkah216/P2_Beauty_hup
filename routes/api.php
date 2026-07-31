@@ -4,7 +4,9 @@ use App\Http\Controllers\Api\V1\CustomerController;
 use App\Http\Controllers\Expert\BookingController;
 use App\Http\Controllers\Expert\CalendarController;
 use App\Http\Controllers\Expert\ExpertController;
+use App\Http\Controllers\Expert\InventoryController;
 use App\Http\Controllers\Expert\PostController;
+use App\Http\Controllers\Expert\ServiceMaterialController;
 use App\Http\Controllers\Expert\StoryController;
 use App\Http\Controllers\ServiceController;
 use Illuminate\Http\Request;
@@ -167,4 +169,36 @@ Route::prefix('expert')->middleware(['auth:sanctum', 'expert.is_active'])->group
 Route::prefix('expert')->middleware(['auth:sanctum', 'expert.is_active'])->group(function () {
     Route::get('calendar', [CalendarController::class, 'index'])->name('expert.calendar.index');
     Route::put('calendar', [CalendarController::class, 'update'])->name('expert.calendar.update');
+});
+
+// ==================== Expert - Inventory ====================
+Route::prefix('expert')->middleware(['auth:sanctum', 'expert.is_active'])->group(function () {
+
+    Route::prefix('inventory')->name('expert.inventory.')->group(function () {
+
+        // مهم: هدول التنتين لازم يكونوا قبل /{item} حتى ما ياكلهن الراوت الديناميكي
+        Route::get('alerts', [InventoryController::class, 'alerts'])->name('alerts');
+        Route::get('smart-alert', [InventoryController::class, 'smartAlert'])->name('smart_alert');
+
+        Route::get('/', [InventoryController::class, 'index'])->name('index');
+        Route::post('/', [InventoryController::class, 'store'])->name('store');
+        Route::get('{item}', [InventoryController::class, 'show'])->name('show');
+
+        // POST كمان مسموح لأنو رفع الصورة بـ multipart ما يمشي مع PUT بكل الكلاينتس
+        Route::match(['put', 'post'], '{item}/update', [InventoryController::class, 'update'])->name('update');
+        Route::put('{item}', [InventoryController::class, 'update']);
+
+        Route::delete('{item}', [InventoryController::class, 'destroy'])->name('destroy');
+        Route::post('{item}/restore', [InventoryController::class, 'restore'])->name('restore');
+
+        // حركات المخزون (إدخال كمية مشتراة / خصم استهلاك / تسوية جرد)
+        Route::get('{item}/movements', [InventoryController::class, 'movements'])->name('movements.index');
+        Route::post('{item}/movements', [InventoryController::class, 'storeMovement'])->name('movements.store');
+    });
+
+    // ربط الخدمة بالمواد يلي تستهلكها
+    Route::get('services/{service}/materials', [ServiceMaterialController::class, 'index'])
+        ->name('expert.services.materials.index');
+    Route::post('services/{service}/materials', [ServiceMaterialController::class, 'sync'])
+        ->name('expert.services.materials.sync');
 });
