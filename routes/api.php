@@ -9,6 +9,9 @@ use App\Http\Controllers\Expert\PostController;
 use App\Http\Controllers\Expert\ServiceMaterialController;
 use App\Http\Controllers\Expert\StoryController;
 use App\Http\Controllers\ServiceController;
+use App\Http\Controllers\Warehouse\WarehouseController;
+use App\Http\Controllers\Warehouse\WarehouseOrderController;
+use App\Http\Controllers\Warehouse\WarehouseProductController;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 
@@ -201,4 +204,41 @@ Route::prefix('expert')->middleware(['auth:sanctum', 'expert.is_active'])->group
         ->name('expert.services.materials.index');
     Route::post('services/{service}/materials', [ServiceMaterialController::class, 'sync'])
         ->name('expert.services.materials.sync');
+});
+// ==================== Warehouse - Auth ====================
+Route::prefix('warehouse')->name('warehouse.')->group(function () {
+    Route::prefix('auth')->name('auth.')->group(function () {
+        Route::post('register', [WarehouseController::class, 'register'])->name('register');
+        Route::post('verify_otp', [WarehouseController::class, 'verifyOtp'])->name('verify_otp');
+        Route::post('resend_otp', [WarehouseController::class, 'resendOtp'])->name('resend_otp');
+
+        Route::post('login', [WarehouseController::class, 'login'])
+            ->middleware('warehouse.is_banned')
+            ->name('login');
+
+        Route::middleware('auth:sanctum')->group(function () {
+            Route::post('logout', [WarehouseController::class, 'logout'])->name('logout');
+        });
+    });
+});
+
+// ==================== Warehouse - Profile / Products / Orders ====================
+Route::prefix('warehouse')->middleware(['auth:sanctum', 'warehouse.is_active'])->group(function () {
+
+    // --- Profile ---
+    Route::get('profile', [WarehouseController::class, 'profile'])->name('warehouse.profile.show');
+    Route::match(['put', 'post'], 'profile', [WarehouseController::class, 'updateProfile'])->name('warehouse.profile.update');
+
+    // --- Products ---
+    Route::get('products', [WarehouseProductController::class, 'index'])->name('warehouse.products.index');
+    Route::post('products', [WarehouseProductController::class, 'store'])->name('warehouse.products.store');
+    Route::match(['put', 'post'], 'products/{product}', [WarehouseProductController::class, 'update'])->name('warehouse.products.update');
+    Route::delete('products/{product}', [WarehouseProductController::class, 'destroy'])->name('warehouse.products.destroy');
+
+    // --- Orders ---
+    Route::get('orders', [WarehouseOrderController::class, 'index'])->name('warehouse.orders.index');
+    Route::get('orders/{order}', [WarehouseOrderController::class, 'show'])->name('warehouse.orders.show');
+    Route::put('orders/{order}/accept', [WarehouseOrderController::class, 'accept'])->name('warehouse.orders.accept');
+    Route::put('orders/{order}/reject', [WarehouseOrderController::class, 'reject'])->name('warehouse.orders.reject');
+    Route::put('orders/{order}/status', [WarehouseOrderController::class, 'updateStatus'])->name('warehouse.orders.status');
 });

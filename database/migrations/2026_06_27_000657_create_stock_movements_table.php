@@ -1,59 +1,32 @@
 <?php
 
-namespace App\Models;
+use Illuminate\Database\Migrations\Migration;
+use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\Schema;
 
-use Illuminate\Database\Eloquent\Model;
-use Illuminate\Database\Eloquent\Relations\BelongsTo;
-
-/**
- * سجل كل حركة دخول/خروج على المخزون (audit trail).
- * ما منعدّل stock_quantity بدون ما ننزّل حركة هون.
- */
-class StockMovement extends Model
+return new class extends Migration
 {
-    public $timestamps = false; // بالجدول في created_at بس
-
-    /** movement_type — مطابقة للـ enum بالداتابيز */
-    public const TYPE_IN         = 'in';
-    public const TYPE_OUT        = 'out';
-    public const TYPE_ADJUSTMENT = 'adjustment';
-
-    /** reason — مطابقة للـ enum بالداتابيز */
-    public const REASON_PURCHASE    = 'purchase';      // شراء مواد
-    public const REASON_SALE        = 'sale';          // بيع منتج
-    public const REASON_CONSUMPTION = 'booking_used';  // استهلاك بخدمة
-    public const REASON_RETURN      = 'return';        // إرجاع
-    public const REASON_STOCKTAKE   = 'adjustment';    // تسوية جرد
-    public const REASON_EXPIRED     = 'expired';       // تلف / انتهاء صلاحية
-
-    protected $fillable = [
-        'product_id',
-        'movement_type',
-        'reason',
-        'quantity',
-        'reference_type',
-        'reference_id',
-        'notes',
-        'created_by_type',
-        'created_by_id',
-        'created_at',
-    ];
-
-    protected $casts = [
-        'quantity'   => 'decimal:2',
-        'created_at' => 'datetime',
-    ];
-
-    public function product(): BelongsTo
+    public function up(): void
     {
-        return $this->belongsTo(Product::class, 'product_id');
+        Schema::create('stock_movements', function (Blueprint $table) {
+            $table->id();
+            $table->foreignId('product_id')
+                  ->constrained('products')
+                  ->cascadeOnDelete();
+            $table->enum('movement_type', ['in', 'out', 'adjustment']);
+            $table->enum('reason', ['purchase', 'sale', 'booking_used', 'return', 'adjustment', 'expired']);
+            $table->integer('quantity');
+            $table->string('reference_type', 50)->nullable();
+            $table->unsignedBigInteger('reference_id')->nullable();
+            $table->text('notes')->nullable();
+            $table->string('created_by_type', 50)->nullable();
+            $table->unsignedBigInteger('created_by_id')->nullable();
+            $table->timestamp('created_at')->useCurrent();
+        });
     }
 
-    /** الإشارة يلي تتطبق على المخزون حسب نوع الحركة */
-    public function signedQuantity(): float
+    public function down(): void
     {
-        return $this->movement_type === self::TYPE_OUT
-            ? -1 * (float) $this->quantity
-            : (float) $this->quantity;
+        Schema::dropIfExists('stock_movements');
     }
-}
+};

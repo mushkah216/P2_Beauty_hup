@@ -12,8 +12,11 @@ return Application::configure(basePath: dirname(__DIR__))
         health: '/up',
     )
     ->withMiddleware(function (Middleware $middleware) {
-        $middleware->alias(['expert.is_banned' => \App\Http\Middleware\ExpertIsBannedMiddleware::class,
-        'expert.is_active'  => \App\Http\Middleware\ExpertIsActiveMiddleware::class,]
+        $middleware->alias(['expert.is_banned'    => \App\Http\Middleware\ExpertIsBannedMiddleware::class,
+            'expert.is_active'    => \App\Http\Middleware\ExpertIsActiveMiddleware::class,
+            'warehouse.is_banned' => \App\Http\Middleware\WarehouseIsBannedMiddleware::class,
+            'warehouse.is_active' => \App\Http\Middleware\WarehouseIsActiveMiddleware::class,
+       ]
         );
     })
     ->withExceptions(function (Exceptions $exceptions) {

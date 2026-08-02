@@ -13,7 +13,8 @@ class Product extends Model
     //
    public const PROVIDER_EXPERT = 'expert';
     public const PROVIDER_SALON  = 'salon';
-    public const PROVIDER_CENTER = 'center';
+    public const PROVIDER_CENTER    = 'beauty_center';
+     public const PROVIDER_WAREHOUSE = 'warehouse';
 
     protected $fillable = [
         'provider_type',
